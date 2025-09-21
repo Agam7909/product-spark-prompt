@@ -5,8 +5,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, ArrowRight, Sparkles, Copy, Download } from "lucide-react";
+import { ArrowLeft, ArrowRight, Sparkles, Copy, Download, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
 
 interface FormData {
   purpose: string;
@@ -14,6 +15,11 @@ interface FormData {
   features: string;
   platform: string;
   complexity: string;
+}
+
+interface GeneratedPRD {
+  content: string;
+  isGenerated: boolean;
 }
 
 const questions = [
@@ -73,17 +79,22 @@ const Generator = () => {
     complexity: ""
   });
   const [showResult, setShowResult] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generatedPRD, setGeneratedPRD] = useState<GeneratedPRD>({
+    content: "",
+    isGenerated: false
+  });
   const { toast } = useToast();
 
   const updateFormData = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  const nextStep = () => {
+  const nextStep = async () => {
     if (currentStep < questions.length - 1) {
       setCurrentStep(currentStep + 1);
     } else {
-      setShowResult(true);
+      await generateDetailedPRD();
     }
   };
 
@@ -93,7 +104,57 @@ const Generator = () => {
     }
   };
 
-  const generatePRD = () => {
+  const generateDetailedPRD = async () => {
+    setIsGenerating(true);
+    
+    try {
+      const { data, error } = await supabase.functions.invoke('generate-detailed-prd', {
+        body: { formData }
+      });
+
+      if (error) {
+        console.error('Error generating PRD:', error);
+        toast({
+          title: "Generation failed",
+          description: "Failed to generate detailed PRD. Please try again.",
+          variant: "destructive",
+        });
+        // Fallback to basic PRD
+        setGeneratedPRD({
+          content: generateBasicPRD(),
+          isGenerated: false
+        });
+      } else if (data?.success && data?.prd) {
+        setGeneratedPRD({
+          content: data.prd,
+          isGenerated: true
+        });
+        toast({
+          title: "PRD Generated!",
+          description: "Your comprehensive PRD has been generated successfully.",
+        });
+      } else {
+        throw new Error('Invalid response from PRD generation service');
+      }
+    } catch (error) {
+      console.error('Error generating PRD:', error);
+      toast({
+        title: "Generation failed",
+        description: "Failed to generate detailed PRD. Using basic template instead.",
+        variant: "destructive",
+      });
+      // Fallback to basic PRD
+      setGeneratedPRD({
+        content: generateBasicPRD(),
+        isGenerated: false
+      });
+    } finally {
+      setIsGenerating(false);
+      setShowResult(true);
+    }
+  };
+
+  const generateBasicPRD = () => {
     const platformText = questions[3].options?.find(opt => opt.value === formData.platform)?.label || formData.platform;
     const complexityText = questions[4].options?.find(opt => opt.value === formData.complexity)?.label || formData.complexity;
 
@@ -159,10 +220,10 @@ Build using modern frameworks and best practices. Focus on ${formData.complexity
 
   const copyToClipboard = async () => {
     try {
-      await navigator.clipboard.writeText(generatePRD());
+      await navigator.clipboard.writeText(generatedPRD.content);
       toast({
         title: "Copied to clipboard!",
-        description: "Your PRD prompt has been copied and is ready to paste into any AI app builder.",
+        description: "Your comprehensive PRD has been copied and is ready to use.",
       });
     } catch (err) {
       toast({
@@ -175,37 +236,64 @@ Build using modern frameworks and best practices. Focus on ${formData.complexity
 
   const downloadPRD = () => {
     const element = document.createElement("a");
-    const file = new Blob([generatePRD()], { type: "text/markdown" });
+    const file = new Blob([generatedPRD.content], { type: "text/markdown" });
     element.href = URL.createObjectURL(file);
-    element.download = "product-requirements-document.md";
+    element.download = "comprehensive-product-requirements-document.md";
     document.body.appendChild(element);
     element.click();
     document.body.removeChild(element);
     
     toast({
       title: "Download started!",
-      description: "Your PRD has been downloaded as a Markdown file.",
+      description: "Your comprehensive PRD has been downloaded as a Markdown file.",
     });
   };
+
+  if (isGenerating) {
+    return (
+      <div className="min-h-screen bg-gradient-hero py-12 px-4 flex items-center justify-center">
+        <div className="max-w-md mx-auto text-center">
+          <div className="mb-6">
+            <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto mb-4" />
+            <h1 className="text-2xl font-bold mb-2">Generating Your Comprehensive PRD</h1>
+            <p className="text-muted-foreground">
+              Our AI is creating a detailed, production-ready Product Requirements Document...
+            </p>
+          </div>
+          <div className="space-y-2 text-sm text-muted-foreground">
+            <p>✨ Analyzing your requirements</p>
+            <p>🔍 Researching best practices</p>
+            <p>📋 Creating detailed specifications</p>
+            <p>🚀 Finalizing the document</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (showResult) {
     return (
       <div className="min-h-screen bg-gradient-hero py-12 px-4">
-        <div className="max-w-4xl mx-auto">
+        <div className="max-w-6xl mx-auto">
           <div className="text-center mb-8">
             <div className="inline-flex items-center gap-2 mb-4">
               <Sparkles className="h-6 w-6 text-primary" />
-              <h1 className="text-3xl font-bold">Your PRD is Ready!</h1>
+              <h1 className="text-3xl font-bold">
+                {generatedPRD.isGenerated ? 'Your Comprehensive PRD is Ready!' : 'Your PRD is Ready!'}
+              </h1>
             </div>
             <p className="text-muted-foreground">
-              Copy this prompt and paste it into any AI app builder to generate your application.
+              {generatedPRD.isGenerated 
+                ? 'A detailed, production-ready Product Requirements Document has been generated for your project.'
+                : 'Your basic PRD has been generated. For more detailed documents, please ensure the AI service is properly configured.'
+              }
             </p>
           </div>
 
           <Card className="shadow-lg">
             <CardHeader>
               <CardTitle className="flex items-center justify-between">
-                Product Requirements Document
+                {generatedPRD.isGenerated ? 'Comprehensive Product Requirements Document' : 'Product Requirements Document'}
                 <div className="flex gap-2">
                   <Button onClick={copyToClipboard} variant="outline" size="sm">
                     <Copy className="h-4 w-4 mr-2" />
@@ -217,10 +305,15 @@ Build using modern frameworks and best practices. Focus on ${formData.complexity
                   </Button>
                 </div>
               </CardTitle>
+              {generatedPRD.isGenerated && (
+                <CardDescription className="text-green-600">
+                  ✨ AI-Enhanced: This is a comprehensive, detailed PRD generated using advanced AI
+                </CardDescription>
+              )}
             </CardHeader>
             <CardContent>
-              <div className="bg-muted p-4 rounded-lg overflow-auto max-h-96">
-                <pre className="whitespace-pre-wrap text-sm">{generatePRD()}</pre>
+              <div className="bg-muted p-4 rounded-lg overflow-auto max-h-[70vh]">
+                <pre className="whitespace-pre-wrap text-sm leading-relaxed">{generatedPRD.content}</pre>
               </div>
             </CardContent>
           </Card>
@@ -230,6 +323,7 @@ Build using modern frameworks and best practices. Focus on ${formData.complexity
               onClick={() => {
                 setShowResult(false);
                 setCurrentStep(0);
+                setGeneratedPRD({ content: "", isGenerated: false });
                 setFormData({
                   purpose: "",
                   audience: "",
@@ -321,13 +415,13 @@ Build using modern frameworks and best practices. Focus on ${formData.complexity
 
               <Button
                 onClick={nextStep}
-                disabled={!isStepValid}
+                disabled={!isStepValid || isGenerating}
                 variant={isLastStep ? "hero" : "default"}
               >
                 {isLastStep ? (
                   <>
                     <Sparkles className="h-4 w-4 mr-2" />
-                    Generate PRD
+                    Generate Comprehensive PRD
                   </>
                 ) : (
                   <>
